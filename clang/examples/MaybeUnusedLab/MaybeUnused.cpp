@@ -71,7 +71,7 @@ protected:
     }
 };
 
-}
+} // namespace
 
 static FrontendPluginRegistry::Add<MaybeUnusedAction>
 X("maybe-unused", "mark unused variables with [[maybe_unused]]");
