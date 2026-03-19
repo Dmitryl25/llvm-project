@@ -67,6 +67,7 @@ add_llvm_component_library(LLVMTransformUtils
   MisExpect.cpp
   ModuleUtils.cpp
   MoveAutoInit.cpp
+  MyInliner.cpp
   NameAnonGlobals.cpp
   PredicateInfo.cpp
   ProfileVerify.cpp
