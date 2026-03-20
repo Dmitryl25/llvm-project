@@ -26,14 +26,14 @@ entry:
 ; CHECK-NOT:   call void @update_total()
 ; CHECK:       br label %entrycloned
 
-; CHECK:       post.call:
-; CHECK-NEXT:    %local_var = alloca i32
-; CHECK-NEXT:    store i32 500, ptr %local_var
-; CHECK-NEXT:    ret void
-
 ; CHECK:       entrycloned:
 ; CHECK-NEXT:    %currentcloned = load i32, ptr @total_sum
 ; CHECK-NEXT:    %tempcloned = add i32 %currentcloned, 10
 ; CHECK-NEXT:    %resultcloned = mul i32 %tempcloned, 2
 ; CHECK-NEXT:    store i32 %resultcloned, ptr @total_sum
 ; CHECK-NEXT:    br label %post.call
+
+; CHECK:       post.call:
+; CHECK-NEXT:    %local_var = alloca i32
+; CHECK-NEXT:    store i32 500, ptr %local_var
+; CHECK-NEXT:    ret void

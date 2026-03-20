@@ -6,37 +6,44 @@
 
 using namespace llvm;
 
+// Функция для проверки, что инструкция - это вызов функции, причем пропускаем рекурсию, не void и ф-ции с параметрами
+static bool isInlineCandidate(Function& F, CallInst* Call) {
+    
+    Function* CalledFunc = Call->getCalledFunction();
+    if (!CalledFunc || CalledFunc->isDeclaration()) {
+        return false;
+    }
+
+    if (CalledFunc == &F) {
+        return false;
+    }
+
+    if (!CalledFunc->getReturnType()->isVoidTy() || CalledFunc->arg_size() != 0) {
+        return false;
+    }
+
+    return true;
+}
+
 
 PreservedAnalyses MyInlinePass::run(Function& F, FunctionAnalysisManager& FM) {
     bool IsChanged = false;
-    std::vector<CallInst*> Calls;
-    // Цикл проходит по всем инструкциям и ищет подходящие call
+    SmallVector<CallInst*, 16> Calls;
+    // Цикл проходит по всем блокам и ищет подходящие call
     for (BasicBlock& BB : F) {
 
         // Обход инструкций внутри блока
         for (Instruction& I : BB) {
-            // Проверка, что инструкция - это вызов функции, причем пропускаем рекурсию, не void и ф-ции с параметрами
             
             if (auto* Call = dyn_cast<CallInst>(&I)) {
-                Function* CalledFunc = Call->getCalledFunction();
-
-                if (CalledFunc == &F) continue;
-
-                if (!CalledFunc || CalledFunc->isDeclaration()) {
-                    continue;
+                if (isInlineCandidate(F, Call)) {
+                    Calls.push_back(Call);
                 }
-
-                if (!CalledFunc->getReturnType()->isVoidTy() || CalledFunc->arg_size() != 0) {
-                    continue;
-                }
-                // Добавляем подходящую функцию для последующего инлайнинга
-                Calls.push_back(Call);
             }
         }
     }
 
     for (CallInst* Call : Calls) {
-        Function* CalledFunc = Call->getCalledFunction();
         BasicBlock* CallBB = Call->getParent();
 
         // Разделяем текущий блок на две части (до вызова функций включительно и после)
@@ -50,22 +57,31 @@ PreservedAnalyses MyInlinePass::run(Function& F, FunctionAnalysisManager& FM) {
         ValueToValueMapTy VMap;
         SmallVector<BasicBlock*, 8> ClonedBlocks;
         // Перебираем все базовые блоки вызываемой функций с целью их клонирования
+        Function* CalledFunc = Call->getCalledFunction();
+
+        BasicBlock* LastInsertedBB = CallBB;
+
         for (BasicBlock& BB : *CalledFunc) {
-            BasicBlock* ClonedBB = CloneBasicBlock(&BB, VMap, "cloned", &F);
-            VMap[&BB] = ClonedBB;
-            ClonedBlocks.push_back(ClonedBB);
+            BasicBlock* ClonedBlock = CloneBasicBlock(&BB, VMap, "cloned", &F);
+            // Каждый новый клон двигаем сразу после предыдущего блока, чтобы всё шло в том же порядке 
+            ClonedBlock->moveAfter(LastInsertedBB);
+            LastInsertedBB = ClonedBlock;
+            ClonedBlocks.push_back(ClonedBlock);
+            VMap[&BB] = ClonedBlocks.back();
         }
 
-        // Ремапим инструкции (обновляем их связи, используя VMap) и заменяем return на переход
+        AfterBB->moveAfter(LastInsertedBB);
+
+        // Ремапим инструкции (обновляем их связи, используя VMap)
         for (BasicBlock* BB : ClonedBlocks) {
             for (Instruction& I : *BB) {
-                RemapInstruction(&I, VMap,
-                    RF_NoModuleLevelChanges | RF_IgnoreMissingLocals);
+                RemapInstruction(&I, VMap,RF_NoModuleLevelChanges | RF_IgnoreMissingLocals);
             }
             // добавляем переход на AfterBB из инлайновского кода и удаляем ret из него же
-            if (auto* RI = dyn_cast<ReturnInst>(BB->getTerminator())) {
-                IRBuilder<>(BB).CreateBr(AfterBB);
-                RI->eraseFromParent();
+            if (auto* RetInst = dyn_cast<ReturnInst>(BB->getTerminator())) {
+                IRBuilder<> Builder(RetInst);
+                Builder.CreateBr(AfterBB);
+                RetInst->eraseFromParent();
             }
         }
 
